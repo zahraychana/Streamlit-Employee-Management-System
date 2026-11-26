@@ -13,6 +13,7 @@ import re                               # Untuk manipulasi string dan regex (mis
 from datetime import date, datetime     #untuk manipulasi tanggal dan waktu
 from dateutil.relativedelta import relativedelta  #Untuk menghitung selisih tahun, bulan, hari secara akurat
 import os                               # Untuk mengecek keberadaan file CSV
+import base64                           # Untuk menanam logo sebagai data URI (tanpa endpoint /media)
 import csv                              # Untuk quoting CSV agar aman dibuka ulang di Excel (mencegah NIK berubah jadi tanggal)
 from io import BytesIO                  # Untuk ekspor data ke Excel 
 from reportlab.lib.pagesizes import A4  # Untuk ekspor data ke PDF 
@@ -2039,11 +2040,50 @@ def load_arsip_pegawai(path: Path = PEGAWAI_ARSIP_PATH):
 # FUNGSI BANTU: Header judul halaman
 # =====================================================================
 # =====================================================================
+@st.cache_resource
+def _logo_data_uri(max_px: int = 360) -> str:
+    """Logo diperkecil lalu di-encode base64 sekali saja per server.
+
+    PERBAIKAN: st.image(LOGO_PATH) menyajikan gambar lewat endpoint
+    /media/... milik Streamlit. Di Streamlit Community Cloud endpoint itu
+    mengembalikan HTTP 500 sehingga logo tampil sebagai ikon gambar rusak.
+    Dengan data URI, gambar ikut terkirim di dalam HTML halaman sehingga
+    tidak bergantung pada endpoint /media sama sekali.
+    """
+    if not LOGO_PATH.exists():
+        return ""
+    try:
+        from PIL import Image as PILImage   # alias: "Image" sudah dipakai reportlab
+        with PILImage.open(LOGO_PATH) as im:
+            im.thumbnail((max_px, max_px))  # 1200px -> 360px (cukup tajam untuk layar retina)
+            buf = BytesIO()
+            im.save(buf, format="PNG", optimize=True)
+        data = buf.getvalue()
+    except Exception:
+        data = LOGO_PATH.read_bytes()
+    return "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+
+
+def tampilkan_logo(width: int, center: bool = False):
+    """Menampilkan logo instansi sebagai <img> ber-data URI."""
+    uri = _logo_data_uri()
+    if not uri:
+        return
+    align = "center" if center else "left"
+    st.markdown(
+        f'<div style="text-align:{align};">'
+        f'<img src="{uri}" width="{width}" alt="Logo Biro Umum" '
+        f'style="max-width:100%; height:auto;">'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def page_header(title: str, subtitle: str = ""):
     col1, col2 = st.columns([2, 6])
 
     with col1:
-        st.image(LOGO_PATH, width=160)
+        tampilkan_logo(width=160)
 
     with col2:
         st.markdown(f"""
@@ -2211,9 +2251,7 @@ def page_login():
 
     with col2:
         # ---- Logo & identitas instansi ----
-        logo1, logo2, logo3 = st.columns([1, 1, 1])
-        with logo2:
-            st.image(LOGO_PATH, width=150)
+        tampilkan_logo(width=150, center=True)
 
         st.markdown("""
             <div style="width:100%; text-align:center; margin:0 auto; padding:14px 0 32px 0;">
